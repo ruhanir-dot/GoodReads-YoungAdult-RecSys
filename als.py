@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from implicit.als import AlternatingLeastSquares
 from scipy.sparse import csr_matrix
-
+from src.io import save_predictions
 
 # ---------- helpers (from src/eval.py) ----------
 
@@ -131,3 +131,5 @@ results = evaluate(recs, interactions, split='test', ks=(5, 10, 20, 100))
 print("\nTest results:")
 for metric, value in results.items():
     print(f"  {metric}: {value:.4f}" if isinstance(value, float) else f"  {metric}: {value}")
+
+save_predictions(recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}), 'als')
