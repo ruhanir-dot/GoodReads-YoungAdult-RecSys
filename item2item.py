@@ -33,10 +33,14 @@ def _ap_at_k(hits: np.ndarray, n_relevant: int, k: int) -> float:
     return float(np.sum(precision_at_i * h) / min(n_relevant, k))
 
 
-def evaluate(recs, interactions, split='test', ks=(5, 10, 20)):
+def evaluate(recs, interactions, split='test', ks=(5, 10, 20), positive_only=True):
+    """If positive_only=True, only rating>=4 interactions count as ground
+    truth. Matches the eval used by the other models so all are comparable."""
+    sub = interactions[interactions['split'] == split]
+    if positive_only:
+        sub = sub[sub['rating'] >= 4]
     truth = (
-        interactions[interactions['split'] == split]
-        .groupby('dense_user_id')['dense_book_id']
+        sub.groupby('dense_user_id')['dense_book_id']
         .apply(set)
         .to_dict()
     )
@@ -49,9 +53,14 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20)):
     ks = sorted(ks)
     kmax = max(ks)
     sums = {f"{m}@{k}": 0.0 for m in ("recall", "precision", "ndcg", "map") for k in ks}
-    n_users = len(truth)
-    for user_id, gt in truth.items():
-        ranked = preds.get(user_id, [])
+    # Only count users we actually generated predictions for.
+    scored_users = set(preds.keys()) & set(truth.keys())
+    n_users = len(scored_users)
+    if n_users == 0:
+        return {k: 0.0 for k in sums} | {"n_eval_users": 0}
+    for user_id in scored_users:
+        gt = truth[user_id]
+        ranked = preds[user_id]
         hits = np.zeros(kmax, dtype=np.float64)
         for i, item_id in enumerate(ranked[:kmax]):
             if item_id in gt:
@@ -68,7 +77,7 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20)):
 
 # ------ item2item ------
 print('Loading Data...')
-interactions = pd.read_parquet('parquet/parquet/interactions_core.parquet',
+interactions = pd.read_parquet('recsys_data_v1/parquet/interactions_core.parquet',
                                columns=['user_id', 'book_id', 'is_read', 'date_updated', 'rating'])
 interactions = interactions[interactions['is_read'] == True].copy()
 
@@ -83,7 +92,7 @@ user_id_map = {uid: i for i, uid in enumerate(interactions['user_id'].unique())}
 interactions['dense_user_id'] = interactions['user_id'].map(user_id_map)
 
 
-books_core = pd.read_parquet('parquet/parquet/books_core.parquet')
+books_core = pd.read_parquet('recsys_data_v1/parquet/books_core.parquet')
 books_core['dense_id'] = range(len(books_core))
 
 book_id_map = dict(zip(books_core['book_id'], books_core['dense_id']))
