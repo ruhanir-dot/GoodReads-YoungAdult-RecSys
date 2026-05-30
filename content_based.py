@@ -1,8 +1,9 @@
-import numpy as np
 import pandas as pd
-from implicit.als import AlternatingLeastSquares
-from scipy.sparse import csr_matrix
+import numpy as np
+import faiss
 from src.io import save_predictions
+
+
 
 # ---------- helpers (from src/eval.py) ----------
 
@@ -63,42 +64,38 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20)):
             sums[f"map@{k}"]       += _ap_at_k(hits, n_rel, k)
     return {k: v / n_users for k, v in sums.items()} | {"n_eval_users": n_users}
 
-
-def build_recs(model, sparse_matrix, n=20):
-    user_ids = np.arange(sparse_matrix.shape[0])
-    item_ids_batch, scores_batch = model.recommend(
-        user_ids, sparse_matrix, N=n, filter_already_liked_items=True
-    )
-    rows = []
-    for user, (items, scores) in enumerate(zip(item_ids_batch, scores_batch)):
-        for rank, (item_id, score) in enumerate(zip(items, scores)):
-            rows.append((user, int(item_id), rank, float(score)))
-    return pd.DataFrame(rows, columns=['user_id_dense', 'book_id_dense', 'rank', 'score'])
-
-
-# ---------- preprocessing ----------
-
-print("Loading data...")
+# --- begin content based ----
+print('Loading Data...')
 books_core = pd.read_parquet('parquet/parquet/books_core.parquet')
-interactions_core = pd.read_parquet('parquet/parquet/interactions_core.parquet')
+books_core['text_to_embed'] = books_core['description'].fillna(books_core['title']) # fill nulls with title
 
-interactions = interactions_core[interactions_core['is_read'] == True].copy()
+# cleaning 
 
+print('Cleaning Data...')
+interactions = pd.read_parquet('parquet/parquet/interactions_core.parquet', 
+                               columns=['user_id', 'book_id', 'is_read', 'date_updated', 'rating'])
+interactions = interactions[interactions['is_read'] == True].copy()
+
+# k-core filter
 interaction_counts = interactions.groupby('user_id').size()
 users_to_remove = interaction_counts[interaction_counts <= 4].index
 interactions = interactions[~interactions['user_id'].isin(users_to_remove)]
 
-interactions['is_positive'] = interactions['rating'] >= 4
-
+# dense IDs
 user_id_map = {uid: i for i, uid in enumerate(interactions['user_id'].unique())}
 interactions['dense_user_id'] = interactions['user_id'].map(user_id_map)
 
+
+
 books_core['dense_id'] = range(len(books_core))
+
 book_id_map = dict(zip(books_core['book_id'], books_core['dense_id']))
 interactions['dense_book_id'] = interactions['book_id'].map(book_id_map)
 interactions = interactions.dropna(subset=['dense_book_id'])
 interactions['dense_book_id'] = interactions['dense_book_id'].astype(int)
 
+# split
+print('Splitting Data...')
 interactions = interactions.sort_values(['dense_user_id', 'date_updated'])
 interactions['rn'] = interactions.groupby('dense_user_id').cumcount(ascending=False)
 interactions['split'] = 'train'
@@ -106,31 +103,56 @@ interactions.loc[interactions['rn'] == 1, 'split'] = 'val'
 interactions.loc[interactions['rn'] == 0, 'split'] = 'test'
 interactions.drop(columns='rn', inplace=True)
 
-print(f"Users: {interactions['dense_user_id'].nunique()}, Books: {interactions['dense_book_id'].nunique()}")
+train = interactions[interactions['split'] == 'train'][['dense_user_id', 'dense_book_id']]
 
-# ---------- sparse matrix ----------
-
-train = interactions[interactions['split'] == 'train']
+user_items = train.groupby('dense_user_id')['dense_book_id'].apply(list).to_dict() # grouping
 n_users = interactions['dense_user_id'].max() + 1
 n_books = interactions['dense_book_id'].max() + 1
 
-sparse_matrix = csr_matrix(
-    (train['rating'].values, (train['dense_user_id'].values, train['dense_book_id'].values)),
-    shape=(n_users, n_books)
-)
-print(f"Sparse matrix: {sparse_matrix.shape}")
+# loading npy
+print('Loading embeddings...')
+desc_emb = np.load('desc_emb.npy')
 
-# ---------- train and eval on test ----------
+# user content emb
+user_content_emb = np.load('user_content_emb.npy')
 
-print("\nTraining model...")
-model = AlternatingLeastSquares(factors=64, regularization=0.01, iterations=10, random_state=42)
-model.fit(sparse_matrix)
-recs = build_recs(model, sparse_matrix, n=20)
+print('Cosine Similarity....')
+# normalize for cosine similarity
+desc_emb_norm = desc_emb.copy().astype(np.float32)
+faiss.normalize_L2(desc_emb_norm)
 
+# build index
+index = faiss.IndexFlatIP(desc_emb_norm.shape[1])
+index.add(desc_emb_norm)
+
+# normalize user embeddings 
+user_emb_norm = user_content_emb.copy()
+faiss.normalize_L2(user_emb_norm)
+
+print('Ranking...')
+# top 25 per user
+distances, indices = index.search(user_emb_norm, 25)
+
+rows = []
+for user_id in range(n_users):
+    seen = set(user_items.get(user_id, []))
+    rank = 0
+    for item_id, score in zip(indices[user_id], distances[user_id]):
+        if item_id in seen or item_id < 0:
+            continue
+        rows.append((user_id, int(item_id), rank, float(score)))
+        rank += 1
+        if rank == 20:
+            break
+
+recs = pd.DataFrame(rows, columns=['user_id_dense', 'book_id_dense', 'rank', 'score'])
+
+
+save_predictions(recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}), 'content')
+
+
+print('Testing metrics...')
 results = evaluate(recs, interactions, split='test', ks=(5, 10, 20, 100))
 print("\nTest results:")
 for metric, value in results.items():
     print(f"  {metric}: {value:.4f}" if isinstance(value, float) else f"  {metric}: {value}")
-
-save_predictions(recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}), 'als')
-
