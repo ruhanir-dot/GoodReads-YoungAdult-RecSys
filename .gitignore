@@ -1,1 +1,5 @@
 *.json
+
+# --- LLM profiling pipeline (contributed) ---
+# vocab.json is an LLM-derived artifact, not raw data — keep it despite *.json above
+!profiling/data/**/vocab.json
