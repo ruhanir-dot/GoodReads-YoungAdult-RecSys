@@ -70,8 +70,8 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20), positive_only=Tru
         .to_dict()
     )
     preds = (
-        recs.sort_values(['user_id_dense', 'rank'])
-        .groupby('user_id_dense')['book_id_dense']
+        recs.sort_values(['dense_user_id', 'rank'])
+        .groupby('dense_user_id')['dense_book_id']
         .apply(list)
         .to_dict()
     )
@@ -730,12 +730,8 @@ for start in range(0, len(test_user_ids), CHUNK):
 recs = (
     pd.concat(top_recs, ignore_index=True)
     .sort_values(['dense_user_id', 'rank'])
-    .rename(columns={
-        'dense_user_id': 'user_id_dense',
-        'dense_book_id': 'book_id_dense',
-        'score_rank':    'score',
-    })
-    [['user_id_dense', 'book_id_dense', 'rank', 'score']]
+    .rename(columns={'score_rank': 'score'})
+    [['dense_user_id', 'dense_book_id', 'rank', 'score']]
 )
 
 
@@ -752,6 +748,6 @@ print(f"  After ranker recall@10 (test):          {results['recall@10']:.4f}")
 print(f"  After ranker ndcg@10  (test):           {results['ndcg@10']:.4f}")
 
 save_predictions(
-    recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}),
+    recs.rename(columns={'dense_user_id': 'user_id', 'dense_book_id': 'item_id'}),
     'multi_stage_llm',
 )

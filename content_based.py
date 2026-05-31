@@ -44,8 +44,8 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20), positive_only=Tru
         .to_dict()
     )
     preds = (
-        recs.sort_values(['user_id_dense', 'rank'])
-        .groupby('user_id_dense')['book_id_dense']
+        recs.sort_values(['dense_user_id', 'rank'])
+        .groupby('dense_user_id')['dense_book_id']
         .apply(list)
         .to_dict()
     )
@@ -154,10 +154,10 @@ for user_id in range(n_users):
         if rank == 20:
             break
 
-recs = pd.DataFrame(rows, columns=['user_id_dense', 'book_id_dense', 'rank', 'score'])
+recs = pd.DataFrame(rows, columns=['dense_user_id', 'dense_book_id', 'rank', 'score'])
 
 
-save_predictions(recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}), 'content')
+save_predictions(recs.rename(columns={'dense_user_id': 'user_id', 'dense_book_id': 'item_id'}), 'content')
 
 
 print('Testing metrics...')

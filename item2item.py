@@ -45,8 +45,8 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20), positive_only=Tru
         .to_dict()
     )
     preds = (
-        recs.sort_values(['user_id_dense', 'rank'])
-        .groupby('user_id_dense')['book_id_dense']
+        recs.sort_values(['dense_user_id', 'rank'])
+        .groupby('dense_user_id')['dense_book_id']
         .apply(list)
         .to_dict()
     )
@@ -177,9 +177,9 @@ for batch_start in range(0, n_users, batch_size):
         for rank, idx in enumerate(top_idx):
             rows.append((user_id, int(items_arr[idx]), rank, float(scores_arr[idx])))
 
-recs = pd.DataFrame(rows, columns=['user_id_dense', 'book_id_dense', 'rank', 'score'])
+recs = pd.DataFrame(rows, columns=['dense_user_id', 'dense_book_id', 'rank', 'score'])
 
-save_predictions(recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}), 'item2item')
+save_predictions(recs.rename(columns={'dense_user_id': 'user_id', 'dense_book_id': 'item_id'}), 'item2item')
 
 print('Testing metrics...')
 results = evaluate(recs, interactions, split='test', ks=(5, 10, 20, 100))

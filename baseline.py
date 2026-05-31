@@ -42,8 +42,8 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20), positive_only=Tru
         .to_dict()
     )
     preds = (
-        recs.sort_values(['user_id_dense', 'rank'])
-        .groupby('user_id_dense')['book_id_dense']
+        recs.sort_values(['dense_user_id', 'rank'])
+        .groupby('dense_user_id')['dense_book_id']
         .apply(list)
         .to_dict()
     )
@@ -114,7 +114,7 @@ def build_recs(pool_items, user_items, n_users, k=20):
         kept = [int(item) for item in pool_items if item not in seen][:k]
         for rank, item_id in enumerate(kept):
             rows.append((user, item_id, rank, float(k - rank)))
-    return pd.DataFrame(rows, columns=['user_id_dense', 'book_id_dense', 'rank', 'score'])
+    return pd.DataFrame(rows, columns=['dense_user_id', 'dense_book_id', 'rank', 'score'])
 
 
 # ---------- preprocessing ----------
@@ -179,6 +179,6 @@ for name, fn in RANKERS.items():
         print(f"    {metric}: {value:.4f}" if isinstance(value, float) else f"    {metric}: {value}")
 
     save_predictions(
-        recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}),
+        recs.rename(columns={'dense_user_id': 'user_id', 'dense_book_id': 'item_id'}),
         f'baseline_{name}',
     )

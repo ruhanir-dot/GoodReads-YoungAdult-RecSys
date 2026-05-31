@@ -44,8 +44,8 @@ def evaluate(recs, interactions, split='test', ks=(5, 10, 20), positive_only=Tru
         .to_dict()
     )
     preds = (
-        recs.sort_values(['user_id_dense', 'rank'])
-        .groupby('user_id_dense')['book_id_dense']
+        recs.sort_values(['dense_user_id', 'rank'])
+        .groupby('dense_user_id')['dense_book_id']
         .apply(list)
         .to_dict()
     )
@@ -84,7 +84,7 @@ def build_recs(model, sparse_matrix, n=20):
     for user, (items, scores) in enumerate(zip(item_ids_batch, scores_batch)):
         for rank, (item_id, score) in enumerate(zip(items, scores)):
             rows.append((user, int(item_id), rank, float(score)))
-    return pd.DataFrame(rows, columns=['user_id_dense', 'book_id_dense', 'rank', 'score'])
+    return pd.DataFrame(rows, columns=['dense_user_id', 'dense_book_id', 'rank', 'score'])
 
 
 # ---------- preprocessing ----------
@@ -143,5 +143,5 @@ print("\nTest results:")
 for metric, value in results.items():
     print(f"  {metric}: {value:.4f}" if isinstance(value, float) else f"  {metric}: {value}")
 
-save_predictions(recs.rename(columns={'user_id_dense': 'user_id', 'book_id_dense': 'item_id'}), 'als')
+save_predictions(recs.rename(columns={'dense_user_id': 'user_id', 'dense_book_id': 'item_id'}), 'als')
 
